@@ -33,7 +33,7 @@
 
 
 # MCU name
-MCU = atmega128a
+MCU = atmega128
 
 # Output format. (can be srec, ihex, binary)
 FORMAT = ihex

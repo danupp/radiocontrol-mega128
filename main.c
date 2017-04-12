@@ -20,6 +20,10 @@
 
 #define ROT1_A PE4
 #define ROT1_B PE5
+#define ROT2_A PD2
+#define ROT2_B PD3
+#define ROT_BUTTON PE3
+#define SQUELCH_BUTTON PF4
 #define MENU_BUTTON PF2
 #define MODE_BUTTON PF1
 #define BAND_BUTTON PF0
@@ -78,25 +82,13 @@ ISR(TIMER1_COMPA_vect) {
   
 }
 
-ISR(INT4_vect) {  // falling level on INT4
-  if(!(PINE & (1 << ROT1_A))) {
-    _delay_us(20);
-    if (!(PINE & (1 << ROT1_B))) {
-      _delay_us(20);
-      if (!(PINE & (1 << ROT1_A)) && !(PINE & (1 << ROT1_B))) {
-	_delay_us(100);
-	rot_flag = 0x02;
-      }
-    }
-  }
-}
 
-ISR(INT5_vect) {  // falling level on INT5
-  if (!(PINE & (1 << ROT1_B))) {
-   _delay_us(20);
-    if (!(PINE & (1 << ROT1_A))) {
+ISR(INT2_vect) {  // falling level on INT2
+  if(!(PIND & (1 << ROT2_A))) {
+    _delay_us(20);
+    if ((PIND & (1 << ROT2_B))) {
       _delay_us(20);
-      if (!(PINE & (1 << ROT1_A)) && !(PINE & (1 << ROT1_B))) {
+      if (!(PIND & (1 << ROT2_A)) && (PIND & (1 << ROT2_B))) {
 	_delay_us(100);
 	rot_flag = 0x01;
       }
@@ -104,12 +96,51 @@ ISR(INT5_vect) {  // falling level on INT5
   }
 }
 
+ISR(INT3_vect) {  // falling level on INT3
+  if (!(PIND & (1 << ROT2_B))) {
+   _delay_us(20);
+    if ((PIND & (1 << ROT2_A))) {
+      _delay_us(20);
+      if ((PIND & (1 << ROT2_A)) && !(PIND & (1 << ROT2_B))) {
+	_delay_us(100);
+	rot_flag = 0x02;
+      }
+    }
+  }
+}
+
+ISR(INT4_vect) {  // falling level on INT4
+  if(!(PINE & (1 << ROT1_A))) {
+    _delay_us(2000);
+    if ((PINE & (1 << ROT1_B))) {
+      _delay_us(2000);
+      if (!(PINE & (1 << ROT1_A)) && (PINE & (1 << ROT1_B))) {
+	_delay_us(100);
+	rot_flag = 0x01;
+      }
+    }
+  }
+}
+
+ISR(INT5_vect) {  // falling level on INT5
+  if (!(PINE & (1 << ROT1_B))) {
+   _delay_us(2000);
+    if ((PINE & (1 << ROT1_A))) {
+      _delay_us(2000);
+      if ((PINE & (1 << ROT1_A)) && !(PINE & (1 << ROT1_B))) {
+	_delay_us(100);
+	rot_flag = 0x02;
+      }
+    }
+  }
+}
+
 ISR(INT6_vect) {  // falling level on INT6
   if(!(PINE & (1 << VOLROT_A))) {
-    _delay_us(20);
-    if (!(PINE & (1 << VOLROT_B))) {
-      _delay_us(20);
-      if (!(PINE & (1 << VOLROT_A)) && !(PINE & (1 << VOLROT_B))) {
+    _delay_us(2000);
+    if ((PINE & (1 << VOLROT_B))) {
+      _delay_us(2000);
+      if (!(PINE & (1 << VOLROT_A)) && (PINE & (1 << VOLROT_B))) {
 	_delay_us(100);
 	vol_flag = 0x02;
       }
@@ -119,10 +150,10 @@ ISR(INT6_vect) {  // falling level on INT6
 
 ISR(INT7_vect) {  // falling level on INT7
   if (!(PINE & (1 << VOLROT_B))) {
-    _delay_us(20);
-    if (!(PINE & (1 << VOLROT_A))) {
-      _delay_us(20);
-      if (!(PINE & (1 << VOLROT_A)) && !(PINE & (1 << VOLROT_B))) {
+    _delay_us(2000);
+    if ((PINE & (1 << VOLROT_A))) {
+      _delay_us(2000);
+      if ((PINE & (1 << VOLROT_A)) && !(PINE & (1 << VOLROT_B))) {
 	_delay_us(100);
 	vol_flag = 0x01;
       }
@@ -342,13 +373,13 @@ uint8_t TWI_write_5bytes(uint8_t addr, uint8_t byte1, uint8_t byte2, uint8_t byt
   return 0x00;
 }
 
-uint8_t updateVolume(uint8_t vol) {
+uint8_t updateVolumeSquelch(uint8_t vol, uint8_t sq) {
   
   uint8_t addr, err;
 
   addr = 0x80; // Address for audio conf
 
-  err = TWI_write_5bytes(fpga_addr, addr, 0x00, 0x00, 0x00, vol);
+  err = TWI_write_5bytes(fpga_addr, addr, 0x00, 0x00, sq, vol);
   if(err)
     return err;
   return 0x00;
@@ -377,7 +408,7 @@ uint8_t updateFreq(double freq, int8_t clar, uint8_t all_update) {
   //   char buffer[60];
   uint8_t byte1, byte2, byte3, byte4, byte5, err;
   uint16_t pll_n_ = pll_n;
-  double freq_lo, ref_freq, ftw;
+  double freq_lo, if_freq, ref_freq, ftw;
   static double ftw_toptop, ftw_topbot, ftw_bottop, ftw_botbot;
 
   /*  if (band < 200) { 
@@ -393,22 +424,40 @@ uint8_t updateFreq(double freq, int8_t clar, uint8_t all_update) {
     }*/
 
   if (all_update) {
-    freq_lo = freq + (double)21400;
+#if F_IF == 21
+    if_freq=21400;
+#elif F_IF == 45
+    if_freq=45000;
+#endif
+#ifdef LO_FREQ_PLUS_IF
+    freq_lo = freq + if_freq;
+#endif
+#ifdef LO_FREQ_MINUS_IF
+    freq_lo = freq - if_freq;
+#endif
+#ifdef LO_IF_PLUS_FREQ
+    freq_lo = if_freq + freq;
+#endif
+#ifdef LO_IF_MINUS_FREQ
+    freq_lo = if_freq - freq;
+#endif
+
     bandf = 1;
 
     if (mode == USB) {
-      freq_lo += (double)1.8;
+      freq_lo -= (double)1.8;
     }
     else if (mode == CW) {
-      freq_lo += (double)0.9;
+      freq_lo -= (double)0.9;
     }
     else if (mode == CWN) {
       //freq_lo += (double)0.9;
     }
     else if (mode == LSB ) {
-      freq_lo -= (double)1.8;
+      freq_lo += (double)1.8;
     }
 
+#ifdef INDIRECT_FREQ
     pll_n_ = (uint16_t)lround(freq_lo/(double)100);  // 100 kHz step
     ref_freq = 170*freq_lo/pll_n_;  // 170 ref divider value
     ftw = ref_freq*(double)279.62026666667; // 20MHz,25bit: 279.620266667 19.2MHz,22bit: 36.4088889
@@ -416,10 +465,19 @@ uint8_t updateFreq(double freq, int8_t clar, uint8_t all_update) {
     ftw_topbot = floor((ftw-ftw_toptop*(double)16777216)/(double)65536);
     ftw_bottop = floor((ftw-ftw_toptop*(double)16777216-ftw_topbot*(double)65536)/(double)256);
     ftw_botbot = fmod(ftw,256);
+#endif
+#ifdef DIRECT_FREQ
+    ftw = freq_lo*(double)279.62026666667; // 20MHz,25bit: 279.620266667 19.2MHz,22bit: 36.4088889
+    ftw_toptop = floor(ftw/(double)16777216);
+    ftw_topbot = floor((ftw-ftw_toptop*(double)16777216)/(double)65536);
+    ftw_bottop = floor((ftw-ftw_toptop*(double)16777216-ftw_topbot*(double)65536)/(double)256);
+    ftw_botbot = fmod(ftw,256);
+#endif    
   }
 
+#if defined(LO_FREQ_PLUS_IF) || defined(LO_IF_PLUS_FREQ)
   clar = -(clar+1);  // For arch with LO above RF freq
-
+#endif
   byte1 = 0xc0;
   byte2 = (uint8_t)(ftw_toptop) | (clar & 0xfe);
   byte3 = (uint8_t)ftw_topbot;
@@ -430,6 +488,7 @@ uint8_t updateFreq(double freq, int8_t clar, uint8_t all_update) {
   if(err)
     return err;
  
+#ifdef INDIRECT_FREQ
   _delay_us(50);
   if (pll_n != pll_n_) {
     pll_n = pll_n_;
@@ -437,60 +496,111 @@ uint8_t updateFreq(double freq, int8_t clar, uint8_t all_update) {
     if (err)
       return err+5;
   }
+#endif
   return 0x00;
 }
 
 uint8_t updateSettings (void) {
 
   uint8_t err;
-  uint8_t byte1, byte2, byte3, byte4, byte5;
+  uint8_t byte0, byte1, byte2, byte3, byte4;
 
   switch (mode) {  
   case LSB:
-    byte1 = 0b01111000; // Set USB (LO+)
-    byte2 = (tx_att << 6)|(rx_att << 3)|0x01;
-    byte3 = 0x08;
+#if defined(LO_FREQ_PLUS_IF)||defined(LO_IF_PLUS_FREQ)
+    byte0 = 0b01111000; // Set USB
+#else
+    byte0 = 0b01110000; // Set LSB
+#endif
+#if F_IF == 21
+    byte1 = (tx_att << 6)|(rx_att << 3)|0x01;
+    byte2 = 0x08;
+#elif F_IF == 45
+    byte1 = (tx_att << 6)|(rx_att << 3)|0x00;
+    byte2 = 0x88;
+#endif
+    byte3 = 0x00;
     byte4 = 0x00;
-    byte5 = 0x00;
     break;
+
   case USB:
-    byte1 = 0b01110000; // Set LSB (LO+)
-    byte2 = (tx_att << 6)|(rx_att << 3)|0x01;
-    byte3 = 0x08;
+#if defined(LO_FREQ_PLUS_IF)||defined(LO_IF_PLUS_FREQ)
+    byte0 = 0b01110000; // Set LSB
+#else
+    byte0 = 0b01111000; // Set USB
+#endif
+#if F_IF == 21
+    byte1 = (tx_att << 6)|(rx_att << 3)|0x01;
+    byte2 = 0x08;
+#elif F_IF == 45
+    byte1 = (tx_att << 6)|(rx_att << 3)|0x00;
+    byte2 = 0x88;
+#endif
+    byte3 = 0x00;
     byte4 = 0x00;
-    byte5 = 0x00;
     break;
+
   case CW:
-    byte1 = 0b01110000; // Set USB (LO+) 
-    byte2 = (tx_att << 6)|(rx_att << 3)|0x01;
-    byte3 = 0x08;
+#if defined(LO_FREQ_PLUS_IF)||defined(LO_IF_PLUS_FREQ)
+    byte0 = 0b01111000; // Set USB
+#else
+    byte0 = 0b01110000; // Set LSB
+#endif
+#if F_IF == 21
+    byte1 = (tx_att << 6)|(rx_att << 3)|0x01;
+    byte2 = 0x08;
+#elif F_IF == 45
+    byte1 = (tx_att << 6)|(rx_att << 3)|0x00;
+    byte2 = 0x88;
+#endif
+    byte3 = 0x00;
     byte4 = 0x00;
-    byte5 = 0x00;
     break;
+
   case CWN:
-    byte1 = 0b01100000; // Set narrow USB (LO+)
-    byte2 = (tx_att << 6)|(rx_att << 3)|0x01;
-    byte3 = 0x08;
+#if defined(LO_FREQ_PLUS_IF)||defined(LO_IF_PLUS_FREQ)
+    byte0 = 0b01101000; // Set narrow USB
+#else
+    byte0 = 0b01100000; // Set narrow LSB
+#endif
+#if F_IF == 21
+    byte1 = (tx_att << 6)|(rx_att << 3)|0x01;
+    byte2 = 0x08;
+#elif F_IF == 45
+    byte1 = (tx_att << 6)|(rx_att << 3)|0x00;
+    byte2 = 0x88;
+#endif
+    byte3 = 0x00;
     byte4 = 0x00;
-    byte5 = 0x00;
     break;
+
   case AM:
-    byte1 = 0b01000000;
-    byte2 = (tx_att << 6)|(rx_att << 3)|0x01;
-    byte3 = 0x08;
+    byte0 = 0b01000000;
+#if F_IF == 21
+    byte1 = (tx_att << 6)|(rx_att << 3)|0x01;
+    byte2 = 0x08;
+#elif F_IF == 45
+    byte1 = (tx_att << 6)|(rx_att << 3)|0x00;
+    byte2 = 0x88;
+#endif
+    byte3 = 0x00;
     byte4 = 0x00;
-    byte5 = 0x00;
     break;
+
   case FM:
-    byte1 = 0b01000001;
-    byte2 = (tx_att << 6)|(rx_att << 3)|0x01;
-    byte3 = 0x08;
+    byte0 = 0b01000001;
+#if F_IF == 21
+    byte1 = (tx_att << 6)|(rx_att << 3)|0x01;
+    byte2 = 0x08;
+#elif F_IF == 45
+    byte1 = (tx_att << 6)|(rx_att << 3)|0x00;
+    byte2 = 0x88;
+#endif
+    byte3 = 0x00;
     byte4 = 0x00;
-    byte5 = 0x00;
   }
   
-
-  err = TWI_write_5bytes(fpga_addr, byte1, byte2, byte3, byte4, byte5);
+  err = TWI_write_5bytes(fpga_addr, byte0, byte1, byte2, byte3, byte4);
   if (err)
     return err;
 
@@ -526,10 +636,11 @@ int main(void)
   double freq, freq_last;  // kHz part
   int16_t clarval, clarval_last;
   int8_t clar = 0;
-  int freq_offset; // offset in MHz for display
+  int freq_offset = 0; // offset in MHz for display
   uint8_t err, data;
   uint8_t rssi, rssi_max=0, rssi_count=0;
   uint8_t last_dir;
+  uint8_t squelch = 0;
   uint8_t tx_last = 255;
   uint8_t vol = 0x18;
   uint16_t steps;
@@ -540,7 +651,7 @@ int main(void)
   DDRA = 0xFF;
   DDRB = 0xFF;
   DDRC = 0xFF;
-  DDRD = 0xFF;
+  DDRD = ~(uint8_t)((1 << ROT2_A)|(1 << ROT2_B));
   DDRE = ~(uint8_t)((1 << ROT1_A)|(1 << ROT1_B)|(1 << VOLROT_A)|(1 << VOLROT_B)|(1 << FREQ_BUTTON));
   DDRF = ~(uint8_t)((1 << VOL_BUTTON)|(1 << MODE_BUTTON)|(1 << BAND_BUTTON)|(1 << CLAR_POT)|(1 << MENU_BUTTON));
   DDRG = 0xFF;  
@@ -548,9 +659,9 @@ int main(void)
   PORTA = 0x00;
   PORTB = 0x00;
   PORTC = 0x00;
-  PORTD = (uint8_t)(1 << PD2); // PD2 = I2C pull-up
-  PORTE = (uint8_t)((1 << ROT1_A)|(1 << ROT1_B)|(1 << VOLROT_A)|(1 << VOLROT_B)|(1 << FREQ_BUTTON));
-  PORTF = (uint8_t)((1 << VOL_BUTTON)|(1 << MODE_BUTTON)|(1 << BAND_BUTTON)|(1 << MODE_BUTTON));
+  PORTD = (uint8_t)((1 << ROT2_A)|(1 << ROT2_B));
+  PORTE = (uint8_t)((1 << ROT1_A)|(1 << ROT1_B)|(1 << VOLROT_A)|(1 << VOLROT_B)|(1 << FREQ_BUTTON)|(1 << ROT_BUTTON));
+  PORTF = (uint8_t)((1 << VOL_BUTTON)|(1 << MODE_BUTTON)|(1 << BAND_BUTTON)|(1 << MODE_BUTTON)|(1 << SQUELCH_BUTTON));
   PORTG = 0x00;
 	
   // turn off the analog comparator
@@ -559,14 +670,16 @@ int main(void)
   // turn off SPI, TWI and USART0
   //PRR  = 0x86U;
 	
-  EICRA = 0x00;
+  EICRA = (1<<ISC21)|(1<<ISC31);
   EICRB = (1<<ISC41)|(1<<ISC51)|(1<<ISC61)|(1<<ISC71);
 
-  EIMSK = (1 << INTF4)|(1 << INTF5)|(1 << INTF6)|(1 << INTF7);
+  EIMSK = (1 << INTF2)|(1 << INTF3)|(1 << INTF4)|(1 << INTF5)|(1 << INTF6)|(1 << INTF7);
 
   wdt_disable();
 
   _delay_ms(500);
+
+  PORTD |= (1 << LED_RED) | (1 << LED_GREEN);
 
   TIMSK = 0;
   Timer0Init();
@@ -577,6 +690,8 @@ int main(void)
   adcInit();
 
   _delay_ms(200);
+
+  PORTD &= ~((1 << LED_RED) | (1 << LED_GREEN));
 
   strcpy_P(buffer, string_intro_row1);
   lcd_puts(buffer);
@@ -590,6 +705,7 @@ int main(void)
   timer_flag = 0x00;
 
   band = 10;
+  freq = 7010;
   step_timer = 255;
   steps = 0;
   last_dir = 0x00;
@@ -599,7 +715,7 @@ int main(void)
   tx_att = 0x00;
   rffe_rx_att = false;
 
-  err = updateVolume(vol);
+  err = updateVolumeSquelch(vol, squelch);
   
   _delay_ms(2000);
 
@@ -669,19 +785,24 @@ int main(void)
 
       // Read RSSI and status:
       err = TWI_read_byte(fpga_addr, &data);
-      if ((data & 0x80) && (tx_last != 1)) { // Shift to TX ?
-	tx = 0x0001;
-	updateRFFE();
-	PORTD |= (1 << LED_RED);
-	PORTD &= ~(1 << LED_GREEN);
-	tx_last = 1;
+      if (!err) {
+	if ((data & 0x80) && (tx_last != 1)) { // Shift to TX ?
+	  tx = 0x0001;
+	  updateRFFE();
+	  PORTD |= (1 << LED_RED);
+	  PORTD &= ~(1 << LED_GREEN);
+	  tx_last = 1;
+	}
+	else if (!(data & 0x80) && (tx_last != 0)) { // Shift to RX ?
+	  tx = 0x0000;
+	  updateRFFE();
+	  PORTD |= (1 << LED_GREEN);
+	  PORTD &= ~(1 << LED_RED);
+	  tx_last = 0;
+	}
       }
-      else if (!(data & 0x80) && (tx_last != 0)) { // Shift to RX ?
-	tx = 0x0000;
-	updateRFFE();
-	PORTD |= (1 << LED_GREEN);
-	PORTD &= ~(1 << LED_RED);
-	tx_last = 0;
+      else { // error
+	PORTD &= ~((1 << LED_RED)|(1 << LED_GREEN));
       }
 
       rssi = (0x3f & data); 
@@ -796,10 +917,10 @@ int main(void)
       case AM:
       case FM:
       default:
-	mode = USB;
+	mode = LSB;
 	if(!updateSettings()) { 
 	  lcd_goto(0x00);
-	  sprintf(buffer,"USB ");
+	  sprintf(buffer,"LSB ");
 	  lcd_puts(buffer);
 	}
 	break;
@@ -888,13 +1009,13 @@ int main(void)
       lcd_freq();
       err = updateFreq(freq,clar,1);
       if (err) {
-	sprintf(buffer,"Err %x         ",err);
+	sprintf(buffer,"Err freq %x         ",err);
 	lcd_goto(0x40);
 	lcd_puts(buffer);	
       }      
       err = updateSettings();
       if (err) {
-	sprintf(buffer,"Err %x         ",err);
+	sprintf(buffer,"Err sett %x         ",err);
 	lcd_goto(0x40);
 	lcd_puts(buffer);	
       }      
@@ -934,12 +1055,20 @@ int main(void)
 	    freq += 0.5;
 	}
 	else {
-	  if (mode == AM)
-	    freq += 1;
+	  if (mode == AM) {
+	    if (PINE & (1 << ROT_BUTTON)) 
+		freq += 1;
+	    else
+	      freq += 10;
+	  }
 	  else if (mode == FM)
 	    freq += 2.5;
-	  else
-	    freq+=0.05;
+	  else {
+	    if (PINE & (1 << ROT_BUTTON)) 
+		freq += 0.05;
+	    else
+	      freq += 2;
+	  }
 	}
 	last_dir = 0x01;
       }
@@ -970,12 +1099,20 @@ int main(void)
 	    freq -= 0.5;
 	}
 	else {
-	  if (mode == AM)
-	    freq -= 1;
+	  if (mode == AM) {
+	    if (PINE & (1 << ROT_BUTTON)) 
+		freq -= 1;
+	    else
+	      freq -= 10;
+	  }
 	  else if (mode == FM)
 	    freq -= 2.5;
-	  else
-	    freq-=0.05;
+	  else {
+	    if (PINE & (1 << ROT_BUTTON)) 
+		freq -= 0.05;
+	    else
+	      freq -= 2;
+	  }
 	}
       last_dir = 0x02;
       }
@@ -985,28 +1122,54 @@ int main(void)
     }
     else if (vol_flag) {
       if (vol_timer > 1) {
-	if (vol_flag == 0x01) {
-	  if(vol<31)
-	    vol ++; // Higher means lower 
-	  sprintf(buffer,"Vol %d    ", 31-vol);
-	  lcd_goto(0x40);
-	  lcd_puts(buffer);
-	}
-	else if (vol_flag == 0x02) {
-	  if(vol>0)
-	    vol --;
-	  sprintf(buffer,"Vol %d    ", 31-vol);
-	  lcd_goto(0x40);
-	  lcd_puts(buffer);
-	}
-
-	err = updateVolume(vol);
-
-	if (err) {
-	  sprintf(buffer,"Err %x         ",err);
-	  lcd_goto(0x40);
-	  lcd_puts(buffer);	
-	}      
+	if (PINF & (1 << SQUELCH_BUTTON)) {
+	    if (vol_flag == 0x01) {
+	      if(vol<31)
+		vol ++; // Higher means lower 
+	      sprintf(buffer,"Vol %d    ", 31-vol);
+	      lcd_goto(0x40);
+	      lcd_puts(buffer);
+	    }
+	    else if (vol_flag == 0x02) {
+	      if(vol>0)
+		vol --;
+	      sprintf(buffer,"Vol %d    ", 31-vol);
+	      lcd_goto(0x40);
+	      lcd_puts(buffer);
+	    }
+	    
+	    err = updateVolumeSquelch(vol, squelch);
+	    
+	    if (err) {
+	      sprintf(buffer,"Err Vol %x         ",err);
+	      lcd_goto(0x40);
+	      lcd_puts(buffer);	
+	    }      
+	  }
+	  else {
+	    if (vol_flag == 0x02) {
+	      if(squelch<31)
+		squelch ++; 
+	      sprintf(buffer,"Sq %d    ", squelch);
+	      lcd_goto(0x40);
+	      lcd_puts(buffer);
+	    }
+	    else if (vol_flag == 0x01) {
+	      if(squelch>0)
+		squelch --;
+	      sprintf(buffer,"Sq %d    ", squelch);
+	      lcd_goto(0x40);
+	      lcd_puts(buffer);
+	    }
+	    
+	    err = updateVolumeSquelch(vol, squelch);
+	    
+	    if (err) {
+	      sprintf(buffer,"Err Sq %x         ",err);
+	      lcd_goto(0x40);
+	      lcd_puts(buffer);	
+	    }      
+	  }
 	vol_timer = 0;
       }
       vol_flag = 0x00;

@@ -8,16 +8,23 @@
 //#define INDIRECT_FREQ
 
 
-// ** Intermediate frequency (IF) in kHz **
+// ** Intermediate frequency (IF). 21 = 21.4MHz or 45MHz **
 
-#define F_IF 45000
+//#define F_IF 21
+#define F_IF 45
 
+// ** Local Oscillator at freq+IF or freq-IF or IF+freq or IF-freq 
+
+//#define LO_FREQ_PLUS_IF
+//#define LO_FREQ_MINUS_IF
+//#define LO_IF_PLUS_FREQ
+#define LO_IF_MINUS_FREQ
 
 // ** Clarifier **
 
 // Comment out if no clarifier-potentiometer is connected. The clarifier adds fine tuning of the frequency in receive mode. 
 
-//#define CLARPOT
+#define CLARPOT
 
 
 // ** Bands **
