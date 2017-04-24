@@ -48,19 +48,6 @@
 #define AMN 0x09
 #define FM 0x0A
 
-#define lcd_freq() \
-  lcd_goto(0x04);  \
-  sprintf(buffer,"%d,%06.2f     ",(int)floor(freq/1000+freq_offset),fmod(freq,1000));  \
-  lcd_puts(buffer);  \
-  lcd_goto(0x0f);  \
-  if (clar > 10)  \
-    sprintf(buffer,"+");  \
-  else if (clar < -10)  \
-    sprintf(buffer,"-");  \
-  else  \
-    sprintf(buffer," ");  \
-  lcd_puts(buffer)
-
 
 volatile uint8_t rot_flag, mode_flag, band_flag, timer_flag, vol_flag;
 volatile uint16_t step_timer;
@@ -71,6 +58,10 @@ volatile uint8_t band_timer = 255, vol_timer = 255;
 volatile uint16_t bandf, tx, pll_n = 0;
 volatile uint8_t rx_att;
 volatile bool rffe_rx_att;
+volatile double freq;
+volatile uint8_t clar = 0;
+volatile int freq_offset = 0; // offset in MHz for display
+
 
 ISR(TIMER0_COMP_vect) {
   if (step_timer < 500)
@@ -373,6 +364,25 @@ uint8_t TWI_write_5bytes(uint8_t addr, uint8_t byte1, uint8_t byte2, uint8_t byt
   return 0x00;
 }
 
+void lcd_freq() {
+  char buffer[60];
+
+  if (mode == AM || mode == AMN || mode == FM) {
+    freq = round(freq);
+  }
+  lcd_goto(0x04);
+  sprintf(buffer,"%d,%06.2f     ",(int)floor(freq/1000+freq_offset),fmod(freq,1000));
+  lcd_puts(buffer);
+  lcd_goto(0x0f);
+  if (clar > 10)
+    sprintf(buffer,"+");
+  else if (clar < -10)
+    sprintf(buffer,"-");
+  else
+    sprintf(buffer," ");
+  lcd_puts(buffer);
+}
+
 uint8_t updateVolumeSquelch(uint8_t vol, uint8_t sq) {
   
   uint8_t addr, err;
@@ -404,7 +414,7 @@ uint8_t updateRFFE(void) {
   return 0x00;
 } 
   
-uint8_t updateFreq(double freq, int8_t clar, uint8_t all_update) {
+uint8_t updateFreq(uint8_t all_update) {
   //   char buffer[60];
   uint8_t byte1, byte2, byte3, byte4, byte5, err;
   uint16_t pll_n_ = pll_n;
@@ -448,7 +458,12 @@ uint8_t updateFreq(double freq, int8_t clar, uint8_t all_update) {
       freq_lo -= (double)1.8;
     }
     else if (mode == CW) {
-      freq_lo -= (double)0.9;
+#if defined(LO_FREQ_PLUS_IF)||defined(LO_IF_PLUS_FREQ)
+      freq_lo -= (double)0.9;  // CW = USB
+#else
+      freq_lo += (double)0.9;  // CW = LSB
+#endif
+
     }
     else if (mode == CWN) {
       //freq_lo += (double)0.9;
@@ -633,10 +648,8 @@ void Timer1Init(void) {
 int main(void)
 {
   char buffer[60];
-  double freq, freq_last;  // kHz part
+  double freq_last;
   int16_t clarval, clarval_last;
-  int8_t clar = 0;
-  int freq_offset = 0; // offset in MHz for display
   uint8_t err, data;
   uint8_t rssi, rssi_max=0, rssi_count=0;
   uint8_t last_dir;
@@ -735,7 +748,7 @@ int main(void)
 
       if ((clarval < clarval_last - 10) || (clarval > clarval_last + 10)) {
 	clar = (int8_t)((clarval - 512) >> 2);
-	err = updateFreq(freq,clar,0);
+	err = updateFreq(0);
 	if (err) {
 	  sprintf(buffer,"Err %x         ",err);
 	  lcd_goto(0x40);
@@ -774,7 +787,7 @@ int main(void)
       // Update frequency if necessary:
       if (freq != freq_last) {
 	lcd_freq();
-	err = updateFreq(freq,clar,1);
+	err = updateFreq(1);
 	if (err) {
 	  sprintf(buffer,"Err %x         ",err);
 	  lcd_goto(0x40);
@@ -926,7 +939,7 @@ int main(void)
 	break;
       }
       _delay_ms(250);
-      err = updateFreq(freq,clar,1);  // To shift +/-
+      err = updateFreq(1);  // To shift +/-
       mode_flag = 0x00;
     }
 
@@ -1007,7 +1020,7 @@ int main(void)
       }
 
       lcd_freq();
-      err = updateFreq(freq,clar,1);
+      err = updateFreq(1);
       if (err) {
 	sprintf(buffer,"Err freq %x         ",err);
 	lcd_goto(0x40);
