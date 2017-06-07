@@ -59,7 +59,7 @@ volatile uint16_t bandf, tx, pll_n = 0;
 volatile uint8_t rx_att;
 volatile bool rffe_rx_att;
 volatile double freq;
-volatile uint8_t clar = 0;
+volatile int8_t clar = 0;
 volatile int freq_offset = 0; // offset in MHz for display
 
 
